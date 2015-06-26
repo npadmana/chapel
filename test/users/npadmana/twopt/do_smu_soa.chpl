@@ -1,4 +1,4 @@
-use Histogram;
+use HistogramOpt;
 use Random;
 use Time;
 
@@ -32,6 +32,7 @@ config const smax=200.0;
 config const smax2=smax**2;
 config const nmubins=5;
 config const nsbins=5;
+config param nParHist : int = 100;
 
 // Global variables
 var gtime1 : Timer;
@@ -271,10 +272,13 @@ proc TreeAccumulate(hh : UniformBins, p1, p2 : Particle3D, node1, node2 : KDNode
 
 // The basic pair counter
 proc smuAccumulate(hh : UniformBins, p1,p2 : Particle3D, d1,d2 : domain(1), scale : real) {
+  var x1,y1,z1,w1,r2 : real;
+  var sl, s2, l1, s1, l2, mu, wprod : real;
+  
+  var tid = hh.lock();
+
   for ii in d1 { // Loop over first set of particles
    
-    var x1,y1,z1,w1,r2 : real;
-    var sl, s2, l1, s1, l2, mu, wprod : real;
     (x1,y1,z1,w1,r2) = p1[ii];
 
     for jj in d2 { // Second set of particles
@@ -289,10 +293,11 @@ proc smuAccumulate(hh : UniformBins, p1,p2 : Particle3D, d1,d2 : domain(1), scal
         mu = sl/(s1*sqrt(l2));
         if (mu < 0) then mu = -mu;
 
-        hh.add((s1,mu),wprod);
+        hh.add(tid,(s1,mu),wprod);
       }
     }
   }
+  hh.unlock(tid);
 }
 
 proc doPairs() {
@@ -335,12 +340,13 @@ proc doPairs() {
   
 
   // Set up the histogram
-  var hh = new UniformBins(2,(nsbins,nmubins), ((0.0,smax),(0.0,1.0+1.e-10)));
+  var hh = new UniformBins(nParHist, 2,(nsbins,nmubins), ((0.0,smax),(0.0,1.0+1.e-10)));
 
   // Do the paircounts with a tree
   hh.reset();
   tt.clear(); tt.start();
   sync TreeAccumulate(hh, pp1,pp2, root1, root2);
+  hh.combine();
   tt.stop();
   if (!isTest) {
     writef("Time to tree paircount : %r \n", tt.elapsed());
@@ -350,7 +356,7 @@ proc doPairs() {
       ff.close();
     }
   } else {
-    hh.set((0,0),0.0);
+    hh.set(0,(0,0),0.0);
     writeHist(stdout,hh,"%20.5er ");
   }
 
