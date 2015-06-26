@@ -41,6 +41,7 @@ module HistogramOpt {
 
     proc reset() {
       [arr1 in arr] arr1 = 0.0;
+      curid.write(0);
     }
 
     proc bins(idim : int) {
@@ -66,7 +67,7 @@ module HistogramOpt {
 
     // combine
     proc combine() {
-      [arr1 in arr[1..]] arr[0] += arr1;
+      for arr1 in arr[1..] do arr[0] += arr1;
     }
 
     proc this(ndx) : real {
