@@ -1,0 +1,3 @@
+mpirun -np 2 ./do_smu_soa_ml_real -nl 2 --isTest > test.out
+diff test.out do_smu_soa_ml.good
+rm test.out
