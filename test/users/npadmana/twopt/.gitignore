@@ -6,3 +6,4 @@ c/
 *.prof
 test-DD.dat.brute
 test-DD.dat.tree
+*_real
