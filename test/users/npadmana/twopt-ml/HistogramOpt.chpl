@@ -1,5 +1,7 @@
 module HistogramOpt {
 
+  use MPI;
+
   class UniformBins {
     param dim : int;
     param nparallel : int;

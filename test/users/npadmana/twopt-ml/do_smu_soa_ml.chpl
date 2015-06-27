@@ -1,3 +1,4 @@
+use MPI;
 use HistogramOpt;
 use Random;
 use Time;
@@ -35,6 +36,7 @@ config param nParHist : int = 100;
 
 proc main() {
   doPairs();
+  MPI.finalize();
 }
 
 
@@ -131,6 +133,17 @@ proc readFile(fn : string) : Particle3D  {
   ff.close();
 
   return pp;
+}
+
+proc syncParticles(root : int, ref pp : Particle3D) {
+  var np : int;
+  if (root == MPI.Rank) {
+    np = pp.npart;
+  } 
+  MPI_Bcast(c_ptrTo(np) : c_void_ptr, 1, MPI_LONG, root : c_int, MPI_COMM_WORLD);
+  if (root != MPI.Rank) then pp = new Particle3D(np);
+  var nn : c_int = (NTOT*np) : c_int;
+  MPI_Bcast(c_ptrTo(pp.arr[0,0]) : c_void_ptr, nn, MPI_DOUBLE, root : c_int, MPI_COMM_WORLD);
 }
 
 proc splitOn(pp : Particle3D, idom : domain(1), splitDim : int, xsplit : real) : int {
@@ -298,35 +311,40 @@ proc smuAccumulate(hh : UniformBins, p1,p2 : Particle3D, d1,d2 : domain(1), scal
 
 proc doPairs() {
   // Informational
-  if !isTest then writeln("Running on ",numLocales,"...");
+  if (!isTest & (MPI.Rank==0)) then writeln("Running on ", MPI.Size," ranks");
 
   var tt : Timer;
 
   // Read in the file
-  tt.clear(); tt.start();
   var pp1, pp2 : Particle3D;
-  if isPerf {
-    pp1 = new Particle3D(nParticles, true);
-    pp2 = new Particle3D(nParticles, true);
-  } else {
-    pp1 = readFile(fn1);
-    pp2 = readFile(fn2);
-    if !isTest {
-      writef("Read in %i lines from file %s \n", pp1.npart, fn1);
-      writef("Read in %i lines from file %s \n", pp2.npart, fn2);
+  if (MPI.Rank == 0) {
+    tt.clear(); tt.start();
+    if isPerf {
+      pp1 = new Particle3D(nParticles, true);
+      pp2 = new Particle3D(nParticles, true);
+    } else {
+      pp1 = readFile(fn1);
+      pp2 = readFile(fn2);
+      if !isTest {
+        writef("Read in %i lines from file %s \n", pp1.npart, fn1);
+        writef("Read in %i lines from file %s \n", pp2.npart, fn2);
+      }
     }
-  }
-  tt.stop();
-  if !isTest {
-    writef("Time to read : %r \n", tt.elapsed());
+    tt.stop();
+    if !isTest {
+      writef("Time to read : %r \n", tt.elapsed());
+    }
+
+    // Shuffle the particles -- this is not used here, but will be usef for the multilocale version
+    tt.clear(); tt.start();
+    pp1.shuffle();
+    pp2.shuffle();
+    tt.stop();
+    if !isTest then writef("Time to shuffle : %r \n",tt.elapsed());
   }
 
-  // Shuffle the particles -- this is not used here, but will be usef for the multilocale version
-  tt.clear(); tt.start();
-  pp1.shuffle();
-  pp2.shuffle();
-  tt.stop();
-  if !isTest then writef("Time to shuffle : %r \n",tt.elapsed());
+  syncParticles(0, pp1);
+  syncParticles(0, pp2);
 
 
   // Build the tree
