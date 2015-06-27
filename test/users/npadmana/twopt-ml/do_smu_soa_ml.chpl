@@ -5,7 +5,6 @@ use Time;
 // Test flags
 config const isTest=false;
 config const isPerf=false;
-config const doBrute=false;
 
 // Performance test parameters
 config const nParticles=10000;
@@ -33,9 +32,6 @@ config const smax2=smax**2;
 config const nmubins=5;
 config const nsbins=5;
 config param nParHist : int = 100;
-
-// Global variables
-var gtime1 : Timer;
 
 proc main() {
   doPairs();
@@ -185,24 +181,24 @@ class KDNode {
 }
 
 
-proc BuildTree(pp : Particle3D, lo : int, hi : int, id : int) : KDNode  {
+proc BuildTree(pp : Particle3D, dom : domain(1), id : int) : KDNode  {
   var me : KDNode = new KDNode();
-  me.lo = lo;
-  me.hi = hi;
-  me.dom = {lo..hi};
+  me.lo = dom.low;
+  me.hi = dom.high;
+  me.dom = dom;
   me.id = id;
   me.npart = (me.hi-me.lo)+1;
 
   //  work out xcen and vantage point radius
   var pmin, pmax : [DimSpace] real;
   for idim in DimSpace {
-    pmin[idim] = min reduce pp.arr[idim,lo..hi];
-    pmax[idim] = max reduce pp.arr[idim,lo..hi];
+    pmin[idim] = min reduce pp.arr[idim,me.lo..me.hi];
+    pmax[idim] = max reduce pp.arr[idim,me.lo..me.hi];
   }
   me.xcen = (pmax+pmin)/2.0;
   me.rcell = 0.0;
   var r1 : real;
-  for ii in lo..hi {
+  for ii in me.dom {
     r1 = 0.0;
     for idim in DimSpace {
       r1 += (pp.arr[idim,ii]-me.xcen[idim])**2;
@@ -224,8 +220,8 @@ proc BuildTree(pp : Particle3D, lo : int, hi : int, id : int) : KDNode  {
 
   // Split
   var lnpart = splitOn(pp,me.dom,splitDim, me.xcen[splitDim]);
-  me.left  = BuildTree(pp, lo, lo+lnpart-1, 2*id+1);
-  me.right = BuildTree(pp, lo+lnpart, hi,2*id+2);
+  me.left  = BuildTree(pp, {me.lo..me.lo+lnpart-1}, 2*id+1);
+  me.right = BuildTree(pp, {me.lo+lnpart..me.hi}, 2*id+2);
   return me;
 }
 
@@ -301,6 +297,9 @@ proc smuAccumulate(hh : UniformBins, p1,p2 : Particle3D, d1,d2 : domain(1), scal
 }
 
 proc doPairs() {
+  // Informational
+  if !isTest then writeln("Running on ",numLocales,"...");
+
   var tt : Timer;
 
   // Read in the file
@@ -331,12 +330,11 @@ proc doPairs() {
 
 
   // Build the tree
-  tt.clear(); tt.start(); gtime1.clear();
-  var root1 = BuildTree(pp1, 0, pp1.npart-1, 0);
-  var root2 = BuildTree(pp2, 0, pp2.npart-1, 0);
+  tt.clear(); tt.start();
+  var root1 = BuildTree(pp1, {0..pp1.npart-1}, 0);
+  var root2 = BuildTree(pp2, {0..pp2.npart-1}, 0);
   tt.stop();
   if !isTest then writef("Time to build trees : %r \n", tt.elapsed());
-  //writef("Time in splitOn : %r \n", gtime1.elapsed());
   
 
   // Set up the histogram
