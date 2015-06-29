@@ -34,6 +34,7 @@ config const smax2=smax**2;
 config const nmubins=5;
 config const nsbins=5;
 config param nParHist : int = 10;
+config const nParHistTasks : int = 24;
 
 // Testing variables
 var nspawn : atomic uint;
@@ -309,8 +310,12 @@ proc TreeAccumulate(hh : UniformBins, p1 : Particle3D, p2 : Particle3D, node1 : 
   writef("%i jobs queued...\n",nspawn);
 
 
-  forall job1 in joblist {
-    smuAccumulate(hh, p1, p2, job1.d1, job1.d2,scale);
+  coforall itask in 0.. #nParHistTasks {
+    var i1 = itask;
+    while (i1 < nspawn) {
+      smuAccumulate(hh, p1, p2, joblist[i1].d1, joblist[i1].d2,scale);
+      i1 += nParHistTasks;
+    }
   }
 
 }
