@@ -248,6 +248,73 @@ proc BuildTree(pp : Particle3D, dom : domain(1), id : int) : KDNode  {
   return me;
 }
 
+record Job {
+  var d1, d2 : domain(1);
+}
+
+proc TreeWalk(node1 : KDNode, node2 : KDNode, jobs : []Job, addjob : bool, ref count : int) {
+  // Compute the distance between node1 and node2
+  var rr = sqrt (+ reduce(node1.xcen - node2.xcen)**2);
+  var rmin = rr - (node1.rcell+node2.rcell);
+
+  // If distance is greater than all cases
+  if (rmin > smax) then return;
+
+  // If both nodes are leaves
+  if (node1.isLeaf() & node2.isLeaf()) {
+    if addjob {
+      jobs[count] = new Job(node1.dom, node2.dom);
+    }
+    count += 1;
+    return;
+  }
+
+  // If one node is a leaf 
+  if (node1.isLeaf()) {
+    TreeWalk(node1, node2.left, jobs, addjob, count);
+    TreeWalk(node1, node2.right,jobs, addjob, count);
+    return;
+  }
+  if (node2.isLeaf()) {
+    TreeWalk(node1.left, node2, jobs, addjob, count);
+    TreeWalk(node1.right, node2, jobs, addjob, count);
+    return;
+  }
+
+  // Split the larger case;
+  if (node1.npart > node2.npart) {
+    TreeWalk(node1.left, node2, jobs, addjob, count);
+    TreeWalk(node1.right, node2, jobs, addjob, count);
+    return;
+  } else {
+    TreeWalk(node1, node2.left, jobs, addjob, count);
+    TreeWalk(node1, node2.right, jobs, addjob, count);
+    return;
+  }
+
+}
+
+
+proc TreeAccumulate(hh : UniformBins, p1 : Particle3D, p2 : Particle3D, node1 : KDNode, node2 : KDNode, scale : real=1) {
+  var nspawn : int = 0;
+  // Define a record of jobs
+  var Djobs : domain(1);
+  var joblist : [Djobs] Job;
+
+  TreeWalk(node1,node2,joblist, false, nspawn);
+  writef("%i jobs found...\n",nspawn);
+  Djobs = {0.. #nspawn};
+  nspawn=0;
+  TreeWalk(node1,node2,joblist, true, nspawn);
+  writef("%i jobs queued...\n",nspawn);
+
+
+  forall job1 in joblist {
+    smuAccumulate(hh, p1, p2, job1.d1, job1.d2,scale);
+  }
+
+}
+/*
 proc TreeAccumulate(hh : UniformBins, p1, p2 : Particle3D, node1, node2 : KDNode, scale : real=1) {
   // Compute the distance between node1 and node2
   var rr = sqrt (+ reduce(node1.xcen - node2.xcen)**2);
@@ -287,6 +354,7 @@ proc TreeAccumulate(hh : UniformBins, p1, p2 : Particle3D, node1, node2 : KDNode
   }
 
 }
+*/
 
   
 
@@ -377,7 +445,6 @@ proc doPairs() {
   tt.stop();
   if (!isTest) {
     writef("Time to tree paircount : %r \n", tt.elapsed());
-    writef("%i tasks were spawned during this process \n",nspawn.read());
     if !isPerf {
       var ff = openwriter("%s.tree".format(pairfn));
       writeHist(ff,hh);
