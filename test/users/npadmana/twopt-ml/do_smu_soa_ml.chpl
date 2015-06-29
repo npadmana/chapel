@@ -33,8 +33,7 @@ config const smax=200.0;
 config const smax2=smax**2;
 config const nmubins=5;
 config const nsbins=5;
-config param nParHist : int = 10;
-config const nParHistTasks : int = 24;
+config param nParHist : int = 100;
 
 // Testing variables
 var nspawn : atomic uint;
@@ -310,11 +309,11 @@ proc TreeAccumulate(hh : UniformBins, p1 : Particle3D, p2 : Particle3D, node1 : 
   writef("%i jobs queued...\n",nspawn);
 
 
-  coforall itask in 0.. #nParHistTasks {
+  coforall itask in 0.. #nParHist {
     var i1 = itask;
     while (i1 < nspawn) {
-      smuAccumulate(hh, p1, p2, joblist[i1].d1, joblist[i1].d2,scale);
-      i1 += nParHistTasks;
+      smuAccumulate(itask, hh, p1, p2, joblist[i1].d1, joblist[i1].d2,scale);
+      i1 += nParHist;
     }
   }
 
@@ -364,12 +363,10 @@ proc TreeAccumulate(hh : UniformBins, p1, p2 : Particle3D, node1, node2 : KDNode
   
 
 // The basic pair counter
-proc smuAccumulate(hh : UniformBins, p1,p2 : Particle3D, d1,d2 : domain(1), scale : real) {
+proc smuAccumulate(tid : int, hh : UniformBins, p1,p2 : Particle3D, d1,d2 : domain(1), scale : real) {
   var x1,y1,z1,w1,r2 : real;
   var sl, s2, l1, s1, l2, mu, wprod : real;
   
-  var tid = hh.lock();
-
   for ii in d1 { // Loop over first set of particles
    
     (x1,y1,z1,w1,r2) = p1[ii];
@@ -390,7 +387,6 @@ proc smuAccumulate(hh : UniformBins, p1,p2 : Particle3D, d1,d2 : domain(1), scal
       }
     }
   }
-  hh.unlock(tid);
 }
 
 proc doPairs() {
@@ -440,7 +436,7 @@ proc doPairs() {
   
 
   // Set up the histogram
-  var hh = new UniformBins(nParHist, 2,(nsbins,nmubins), ((0.0,smax),(0.0,1.0+1.e-10)));
+  var hh = new UniformBins(2,nParHist,(nsbins,nmubins), ((0.0,smax),(0.0,1.0+1.e-10)));
 
   // Do the paircounts with a tree
   hh.reset();

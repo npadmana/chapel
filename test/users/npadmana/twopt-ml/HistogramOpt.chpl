@@ -4,21 +4,19 @@ module HistogramOpt {
 
   class UniformBins {
     param dim : int;
-    param nparallel : int;
 
-    // Locks
-    var locks$ : [0.. #nparallel] sync bool;
-    var curid : atomic int;
-
+    var nparallel : int;
     var nbins : dim*int;
     var Dhist : domain(dim);
+    var Dpar : domain(1);
     var lo, hi,dx, invdx : [1..dim] real;
-    var arr : [0.. #nparallel][Dhist] real;
+    var arr : [Dpar][Dhist] real;
 
 
-    proc UniformBins(param nparallel : int, param dim : int, nbins : dim*int, limits : dim*(real,real)) {
+    proc UniformBins(param dim : int, nparallel : int, nbins : dim*int, limits : dim*(real,real)) {
       var dd : dim*range;
       this.nbins = nbins;
+      this.nparallel = nparallel;
       for param ii in 1..dim {
         lo[ii] = limits(ii)(1);
         hi[ii] = limits(ii)(2);
@@ -27,10 +25,12 @@ module HistogramOpt {
       }
       invdx = 1.0/dx;
       Dhist = {(...dd)};
+      Dpar = {0.. #nparallel};
       [arr1 in arr] arr1 = 0.0;
-      curid.write(0);
+      //curid.write(0);
     }
 
+    /*
     proc lock() : int {
       var tid = curid.fetchAdd(1) % nparallel;
       locks$[tid] = true;
@@ -40,10 +40,11 @@ module HistogramOpt {
     proc unlock(tid : int) {
       locks$[tid];
     }
+    */
 
     proc reset() {
       [arr1 in arr] arr1 = 0.0;
-      curid.write(0);
+      //curid.write(0);
     }
 
     proc bins(idim : int) {
