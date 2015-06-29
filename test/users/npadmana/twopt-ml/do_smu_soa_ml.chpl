@@ -2,6 +2,7 @@ use MPI;
 use HistogramOpt;
 use Random;
 use Time;
+use Memory;
 
 // Test flags
 config const isTest=false;
@@ -32,11 +33,20 @@ config const smax=200.0;
 config const smax2=smax**2;
 config const nmubins=5;
 config const nsbins=5;
-config param nParHist : int = 100;
+config param nParHist : int = 10;
+
+// Testing variables
+var nspawn : atomic uint;
+nspawn.write(0);
 
 proc main() {
+  if memTrack then startVerboseMem();
   doPairs();
   MPI.finalize();
+  if memTrack {
+    stopVerboseMem();
+    printMemAllocStats();
+  }
 }
 
 
@@ -238,7 +248,7 @@ proc BuildTree(pp : Particle3D, dom : domain(1), id : int) : KDNode  {
   return me;
 }
 
-proc TreeAccumulate(hh : UniformBins, p1, p2 : Particle3D, node1, node2 : KDNode) {
+proc TreeAccumulate(hh : UniformBins, p1, p2 : Particle3D, node1, node2 : KDNode, scale : real=1) {
   // Compute the distance between node1 and node2
   var rr = sqrt (+ reduce(node1.xcen - node2.xcen)**2);
   var rmin = rr - (node1.rcell+node2.rcell);
@@ -248,7 +258,8 @@ proc TreeAccumulate(hh : UniformBins, p1, p2 : Particle3D, node1, node2 : KDNode
 
   // If both nodes are leaves
   if (node1.isLeaf() & node2.isLeaf()) {
-    begin smuAccumulate(hh, p1, p2, node1.dom, node2.dom,1);
+    nspawn.add(1);
+    begin smuAccumulate(hh, p1, p2, node1.dom, node2.dom,scale);
     return;
   }
 
@@ -343,8 +354,8 @@ proc doPairs() {
     if !isTest then writef("Time to shuffle : %r \n",tt.elapsed());
   }
 
-  syncParticles(0, pp1);
-  syncParticles(0, pp2);
+//  syncParticles(0, pp1);
+//  syncParticles(0, pp2);
 
 
   // Build the tree
@@ -366,6 +377,7 @@ proc doPairs() {
   tt.stop();
   if (!isTest) {
     writef("Time to tree paircount : %r \n", tt.elapsed());
+    writef("%i tasks were spawned during this process \n",nspawn.read());
     if !isPerf {
       var ff = openwriter("%s.tree".format(pairfn));
       writeHist(ff,hh);
