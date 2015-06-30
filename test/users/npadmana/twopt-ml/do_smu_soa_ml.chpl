@@ -33,7 +33,7 @@ config const smax=200.0;
 config const smax2=smax**2;
 config const nmubins=5;
 config const nsbins=5;
-config param nParHist : int = 100;
+config const nParHist : int = 100;
 
 // Testing variables
 var nspawn : atomic uint;
