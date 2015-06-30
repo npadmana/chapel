@@ -28,6 +28,7 @@ module MPI {
 
   // MPI Ops
   extern const MPI_SUM : MPI_Op;
+  extern const MPI_IN_PLACE : c_void_ptr;
 
   // Define MPI_COMM_WORLD
   extern const MPI_COMM_WORLD : MPI_Comm;

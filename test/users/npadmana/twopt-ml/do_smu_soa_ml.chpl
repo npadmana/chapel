@@ -119,6 +119,23 @@ class Particle3D {
   
 }
 
+// Splits the domain into n pieces. Assumes the domain is contiguous
+proc splitDomain(indom : domain(1), n : int) {
+  var nel = indom.size;
+  var lo = indom.low;
+  var hi = indom.high;
+  var nsplit = nel/n;
+  var ret : [0.. #n] domain(1);
+  for ii in 0.. #(n-1) {
+    ret[ii] = {lo..(lo+nsplit-1)};
+    lo+=nsplit;
+  }
+  ret[n-1] = {lo..hi};
+  return ret;
+}
+
+  
+
 
 proc countLines(fn : string) : int {
   var ff = open(fn, iomode.r);
@@ -302,11 +319,11 @@ proc TreeAccumulate(hh : UniformBins, p1 : Particle3D, p2 : Particle3D, node1 : 
   var joblist : [Djobs] Job;
 
   TreeWalk(node1,node2,joblist, false, nspawn);
-  writef("%i jobs found...\n",nspawn);
+  //writef("%i jobs found...\n",nspawn);
   Djobs = {0.. #nspawn};
   nspawn=0;
   TreeWalk(node1,node2,joblist, true, nspawn);
-  writef("%i jobs queued...\n",nspawn);
+  //writef("%i jobs queued...\n",nspawn);
 
 
   coforall itask in 0.. #nParHist {
@@ -318,48 +335,6 @@ proc TreeAccumulate(hh : UniformBins, p1 : Particle3D, p2 : Particle3D, node1 : 
   }
 
 }
-/*
-proc TreeAccumulate(hh : UniformBins, p1, p2 : Particle3D, node1, node2 : KDNode, scale : real=1) {
-  // Compute the distance between node1 and node2
-  var rr = sqrt (+ reduce(node1.xcen - node2.xcen)**2);
-  var rmin = rr - (node1.rcell+node2.rcell);
-
-  // If distance is greater than all cases
-  if (rmin > smax) then return;
-
-  // If both nodes are leaves
-  if (node1.isLeaf() & node2.isLeaf()) {
-    nspawn.add(1);
-    begin smuAccumulate(hh, p1, p2, node1.dom, node2.dom,scale);
-    return;
-  }
-
-  // If one node is a leaf 
-  if (node1.isLeaf()) {
-    TreeAccumulate(hh, p1, p2, node1, node2.left);
-    TreeAccumulate(hh, p1, p2, node1, node2.right);
-    return;
-  }
-  if (node2.isLeaf()) {
-    TreeAccumulate(hh, p1, p2, node1.left, node2);
-    TreeAccumulate(hh, p1, p2, node1.right, node2);
-    return;
-  }
-
-  // Split the larger case;
-  if (node1.npart > node2.npart) {
-    TreeAccumulate(hh, p1, p2, node1.left, node2);
-    TreeAccumulate(hh, p1, p2, node1.right, node2);
-    return;
-  } else {
-    TreeAccumulate(hh, p1, p2, node1, node2.left);
-    TreeAccumulate(hh, p1, p2, node1, node2.right);
-    return;
-  }
-
-}
-*/
-
   
 
 // The basic pair counter
@@ -423,14 +398,22 @@ proc doPairs() {
     if !isTest then writef("Time to shuffle : %r \n",tt.elapsed());
   }
 
-//  syncParticles(0, pp1);
-//  syncParticles(0, pp2);
+  syncParticles(0, pp1);
+  syncParticles(0, pp2);
+
+  // Split
+  var split1 = splitDomain(pp1.Dpart,MPI.Size);
+  var split2 = splitDomain(pp2.Dpart,MPI.Size);
 
 
   // Build the tree
   tt.clear(); tt.start();
-  var root1 = BuildTree(pp1, {0..pp1.npart-1}, 0);
-  var root2 = BuildTree(pp2, {0..pp2.npart-1}, 0);
+  var root1 : [0.. #MPI.Size] KDNode;
+  var root2 : [0.. #MPI.Size] KDNode;
+  forall ii in 0.. #MPI.Size {
+    root1[ii] = BuildTree(pp1, split1[ii], 0);
+    root2[ii] = BuildTree(pp2, split2[ii], 0);
+  }
   tt.stop();
   if !isTest then writef("Time to build trees : %r \n", tt.elapsed());
   
@@ -441,19 +424,35 @@ proc doPairs() {
   // Do the paircounts with a tree
   hh.reset();
   tt.clear(); tt.start();
-  sync TreeAccumulate(hh, pp1,pp2, root1, root2);
-  hh.combine();
-  tt.stop();
-  if (!isTest) {
-    writef("Time to tree paircount : %r \n", tt.elapsed());
-    if !isPerf {
-      var ff = openwriter("%s.tree".format(pairfn));
-      writeHist(ff,hh);
-      ff.close();
+  var ctr = 0;
+  for iroot1 in root1 {
+    for iroot2 in root2 {
+      if (ctr%MPI.Size == MPI.Rank) then TreeAccumulate(hh,pp1,pp2,iroot1,iroot2,1.0);
+      ctr += 1;
     }
+  }
+  hh.combine();
+  if (MPI.Rank == 0) {
+    MPI_Reduce(MPI_IN_PLACE, c_ptrTo(hh.arr[0][0,0]) : c_void_ptr,
+        (nsbins*nmubins):c_int, MPI_DOUBLE,MPI_SUM, 0, MPI_COMM_WORLD);
   } else {
-    hh.set(0,(0,0),0.0);
-    writeHist(stdout,hh,"%20.5er ");
+    MPI_Reduce(c_ptrTo(hh.arr[0][0,0]) : c_void_ptr, MPI_IN_PLACE, 
+        (nsbins*nmubins):c_int, MPI_DOUBLE,MPI_SUM, 0, MPI_COMM_WORLD);
+  }
+  tt.stop();
+
+  if (MPI.Rank == 0) {
+    if (!isTest) {
+      writef("Time to tree paircount : %r \n", tt.elapsed());
+      if !isPerf {
+        var ff = openwriter("%s.tree".format(pairfn));
+        writeHist(ff,hh);
+        ff.close();
+      }
+    } else {
+      hh.set(0,(0,0),0.0);
+      writeHist(stdout,hh,"%20.5er ");
+    }
   }
 
   //
@@ -461,8 +460,10 @@ proc doPairs() {
   //
   delete pp1;
   delete pp2;
-  delete root1;
-  delete root2;
+  forall ii in 0.. #MPI.Size {
+    delete root1[ii];
+    delete root2[ii];
+  }
   delete hh;
 }
 
