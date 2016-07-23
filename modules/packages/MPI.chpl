@@ -129,9 +129,29 @@ module MPI {
 
   use UtilReplicatedVar;
 
+  /* Define an enum for MPI thread support.
+   Only consider Serialized or Multiple, since it's not
+   practical to assume that all MPI calls must be sent from
+   the initial thread that calls MPI.*/
+  enum ThreadSupport {Serialized, Multiple};
+
+  /* Requested thread support. Note that while we use Multiple as a default,
+   you may get better performance out of the MPI library using Serialized in SPMD mode */
+  config const RequestedThreadSupport = ThreadSupport.Multiple;
+  assert((numLocales==1) || (RequestedThreadSupport == ThreadSupport.Multiple),
+        "ThreadSupport.Serialized not supported in multi-locale mode");
+
+  proc MPI_ThreadSupport {
+    var retval = MPI_THREAD_MULTIPLE;
+    select RequestedThreadSupport {
+      when ThreadSupport.Serialized do retval=MPI_THREAD_SERIALIZED;
+      when ThreadSupport.Multiple do retval=MPI_THREAD_MULTIPLE;
+    }
+    return retval;
+  }
+
   /* Configuration constants */
   config const autoInitMPI=true;
-  config const requireThreadedMPI=true;
   config const debugMPI=false;
 
   var CHPL_COMM_WORLD_REPLICATED : [rcDomain] MPI_Comm;
@@ -185,12 +205,16 @@ module MPI {
       var provided : c_int;
       if debugMPI then writeln("MPI already initialized.....");
       C_MPI.MPI_Query_thread(provided);
-      if (provided != MPI_THREAD_MULTIPLE) &&
-         requireThreadedMPI
-      {
+      if provided < MPI_ThreadSupport {
         writeln("Unable to get a high enough MPI thread support");
         C_MPI.MPI_Abort(MPI_COMM_WORLD, 10);
       }
+      ///if (provided != MPI_THREAD_MULTIPLE) &&
+      ///   requireThreadedMPI
+      ///{
+      ///  writeln("Unable to get a high enough MPI thread support");
+      ///  C_MPI.MPI_Abort(MPI_COMM_WORLD, 10);
+      ///}
       setChplComm();
     }
   }
@@ -201,10 +225,11 @@ module MPI {
     coforall loc in Locales do on loc {
       // TODO : Need a gasnet barrier here???
       var provided : c_int;
-      C_MPI.MPI_Init_thread(0,0,MPI_THREAD_MULTIPLE,provided);
-      if (provided != MPI_THREAD_MULTIPLE) &&
-         requireThreadedMPI
-      {
+      C_MPI.MPI_Init_thread(0,0,MPI_ThreadSupport,provided);
+      ///if (provided != MPI_THREAD_MULTIPLE) &&
+      ///   requireThreadedMPI
+      ///{
+      if provided < MPI_ThreadSupport {
         writeln("Unable to get a high enough MPI thread support");
         C_MPI.MPI_Abort(MPI_COMM_WORLD, 10);
       }
